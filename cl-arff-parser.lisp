@@ -1,6 +1,8 @@
-(defpackage :arff-parser
+(defpackage :cl-arff-parser
   (:use :common-lisp)
-  (:documentation "A parser and some manipulation for Weka Machine Learning datasets."))
+  (:export arff arff-relation arff-attributes arff-data arff-path parse-arff remove-attribute-by-name)
+  (:documentation "A parser and some manipulation for Weka
+  Machine (ARFF) Learning datasets."))
 
  ;; Check http://www.cs.waikato.ac.nz/~ml/weka/arff.html for more info
  ;; on the syntax of arff.
@@ -41,42 +43,72 @@
 ;;    5.0,3.4,1.5,0.2,Iris-setosa
 ;;    4.4,2.9,1.4,0.2,Iris-setosa
 ;;    4.9,3.1,1.5,0.1,Iris-setosa
-  
 
-(in-package :arff-parser)
 
-(export '(arff relation attributes data parse-arff remove-attribute-by-name))
+;;; Example (assuming the above content resides in ~/example.arff):
+
+;; (pprint (parse-arff "~/example.arff")) 
+
+;; <arff iris:
+;; attributes: 
+;; (sepallength (numeric)),
+;; (sepalwidth (numeric)),
+;; (petallength (numeric)),
+;; (petalwidth (numeric)),
+;; (class (nominal Iris-setosa Iris-versicolor Iris-virginica))
+;; data: 
+;; (5.1 3.5 1.4 0.2 Iris-setosa)
+;; (4.9 3.0 1.4 0.2 Iris-setosa)
+;; (4.7 3.2 1.3 0.2 Iris-setosa)
+;; (4.6 3.1 1.5 0.2 Iris-setosa)
+;; (5.0 3.6 1.4 0.2 Iris-setosa)
+;; (5.4 3.9 1.7 0.4 Iris-setosa)
+;; (4.6 3.4 1.4 0.3 Iris-setosa)
+;; (5.0 3.4 1.5 0.2 Iris-setosa)
+;; (4.4 2.9 1.4 0.2 Iris-setosa)
+;; (4.9 3.1 1.5 0.1 Iris-setosa)>
+
+
+;; parse-arff has been successfully tested on all arff files that come
+;; packaged with Weka.
+
+
+(in-package :cl-arff-parser)
 
 (defclass arff ()
-  ((file-path :accessor file-path
-              :initarg :file-path
-              :initform "/"
+  ((arff-path :accessor arff-path
+              :initarg :arff-path
+              :initform "~/"
               :documentation "A string to the path of the arff
               file. e.g. /home/user/myData/foo.arff")
-   (relation :accessor relation
-             :initarg :reltation
-             :initform ""
-             :documentation "The string after @relation")
-   (attributes :accessor attributes
-               :initform nil
-               :initarg :attributes
-               :type list
-               :documentation "The attributes as specified in the
-               header.")
-   (data :accessor data
-         :initarg :data
-         :initform nil
-         :type list
-         :documentation "All the data. The bulk of the file."))
+   (arff-relation :accessor arff-relation
+                  :initarg :arff-reltation
+                  :initform ""
+                  :documentation "The string after @relation. This is
+             essentially the name of the arff.")
+   (arff-attributes :accessor arff-attributes
+                    :initarg :arff-attributes
+                    :initform nil 
+                    :type list
+                    :documentation "The attributes as specified in the
+               header. Each attribute is a list that looks as
+               follows: (\"attribute-name\" (\"type\")). In case of a
+               nominal attribute it looks like
+               this: (\"attribute-name\" (\"nominal\" . values)). ")
+   (arff-data :accessor arff-data
+              :initarg :arff-data
+              :initform nil
+              :type list
+              :documentation "All the data. The bulk of the file."))
   (:documentation "An arff object contains all the data found in a
   parsed arff file."))
 
 (defmethod print-object ((arff arff) stream)
   (if *print-pretty*
       (pprint-logical-block (stream nil)
-        (format stream "<arff ~a:~%attributes: ~{~%~a~^,~}~%data: ~{~%~a~}" 
-                (relation arff) (attributes arff) (data arff)))
-      (format stream "<arff ~a>" (relation arff))))
+        (format stream "<arff ~a:~%attributes: ~{~%~a~^,~}~%data: ~{~%~a~}>" 
+                (arff-relation arff) (arff-attributes arff) (arff-data arff)))
+      (format stream "<arff ~a>" (arff-relation arff))))
 
 (defun trim-comments-and-spaces (string &optional (comment-marker "%"))
   (string-trim (list (code-char 9)) ;; tabs
@@ -167,11 +199,16 @@ parsed by parse-datatype."
 (defun parse-data (line)
   (csv->list line))
 
-(defun parse-arff (file-path)
-  "The file-path should be a string pointing to an arff-file."
-  (let* ((file (open file-path))
+
+;; -----------------------------------------
+;; Main function used to parse an arff file.
+;; -----------------------------------------
+
+(defun parse-arff (arff-path)
+  "The arff-path should be a string pointing to an arff-file."
+  (let* ((file (open arff-path))
          (arff (make-instance 'arff 
-                              :file-path file-path)))
+                              :arff-path arff-path)))
     (loop 
        with data-mode-p = nil ;; true when parsing data
        for line = (read-line file nil)
@@ -183,15 +220,15 @@ parsed by parse-datatype."
        when (not data-mode-p)
        do (cond ((equalp trimmed-line "")) ;; skip empty and commented lines
 		((search "@relation" (string-downcase trimmed-line))
-		 (setf (relation arff) 
+		 (setf (arff-relation arff) 
 		       (subseq trimmed-line (1+ (search " " trimmed-line)))))
 		((search "@attribute" (string-downcase trimmed-line))
-		 (setf (attributes arff)
-		       (append (attributes arff)
+		 (setf (arff-attributes arff)
+		       (append (arff-attributes arff)
 			       (list (parse-@attribute trimmed-line)))))
 		((search "@data" (string-downcase trimmed-line))
 		 (setf data-mode-p t)))
-       finally (setf (data arff) data))
+       finally (setf (arff-data arff) data))
     arff))
 
 (defgeneric remove-attribute-by-name (arff name)
@@ -200,12 +237,12 @@ parsed by parse-datatype."
   that @attributes and the @data."))
 
 (defmethod remove-attribute-by-name ((arff arff) (name string))
-  (let ((position (position name (attributes arff) :key #'first :test #'string-equal)))
+  (let ((position (position name (arff-attributes arff) :key #'first :test #'string-equal)))
     (when position
-      (setf (attributes arff) 
-	    (delete name (attributes arff) :key #'first :test #'string-equal))
-      (setf (data arff)
-	    (loop for instance in (data arff)
+      (setf (arff-attributes arff) 
+	    (delete name (arff-attributes arff) :key #'first :test #'string-equal))
+      (setf (arff-data arff)
+	    (loop for instance in (arff-data arff)
 	       collect (delete-if (nth position instance) instance))))))
 
 (defmethod remove-attribute-by-name ((arff arff) name)
